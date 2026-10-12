@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Playwright
+.playwright/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OpenClaw workspace (don't include in git)
+memory/
+HEARTBEAT.md
+TOOLS.md
+MEMORY.md
+USER.md
+SOUL.md
+IDENTITY.md

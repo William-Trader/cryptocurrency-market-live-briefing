@@ -1,0 +1,66 @@
+name: Crypto Monitor CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 每天 UTC 0 点跑一次（北京时间早8点）
+    - cron: '0 0 * * *'
+
+jobs:
+  test-api-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install playwright-chromium
+          npx playwright install chromium
+
+      - name: Test prices.mjs
+        run: node scripts/prices.mjs
+
+      - name: Test fear-greed.mjs
+        run: node scripts/fear-greed.mjs
+
+      - name: Test puell.mjs
+        run: node scripts/puell.mjs
+
+      - name: Test crypto-daily-report.mjs
+        run: node scripts/crypto-daily-report.mjs
+
+      - name: Test briefing.mjs
+        run: node scripts/briefing.mjs
+
+  test-browser-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright & Chromium
+        run: |
+          npm install playwright-chromium
+          npx playwright install chromium
+
+      - name: Test coin-screener.mjs
+        run: node scripts/coin-screener.mjs
+        timeout-minutes: 5
