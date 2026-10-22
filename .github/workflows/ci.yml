@@ -1,66 +1,45 @@
-name: Crypto Monitor CI
+name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2.0.0]
   pull_request:
     branches: [main]
   schedule:
-    # 每天 UTC 0 点跑一次（北京时间早8点）
     - cron: '0 0 * * *'
 
 jobs:
-  test-api-scripts:
+  offline:
+    name: Offline tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+      - name: Syntax check
+        run: node scripts/check.js
+      - name: Unit tests
+        run: node --test test/*.test.js
 
-      - name: Install Playwright
-        run: |
-          npm install playwright-chromium
-          npx playwright install chromium
-
-      - name: Test prices.mjs
-        run: node scripts/prices.mjs
-
-      - name: Test fear-greed.mjs
-        run: node scripts/fear-greed.mjs
-
-      - name: Test puell.mjs
-        run: node scripts/puell.mjs
-
-      - name: Test crypto-daily-report.mjs
-        run: node scripts/crypto-daily-report.mjs
-
-      - name: Test briefing.mjs
-        run: node scripts/briefing.mjs
-
-  test-browser-scripts:
+  live-smoke:
+    name: Live data smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 10
+    needs: offline
+    continue-on-error: true
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Install Playwright & Chromium
-        run: |
-          npm install playwright-chromium
-          npx playwright install chromium
-
-      - name: Test coin-screener.mjs
-        run: node scripts/coin-screener.mjs
-        timeout-minutes: 5
+          node-version: '22'
+      - name: Doctor
+        run: node bin/crypto-intel.js doctor
+      - name: Build briefing
+        run: node bin/crypto-intel.js brief --format markdown --out reports/latest.md
+      - name: Upload briefing
+        uses: actions/upload-artifact@v4
+        with:
+          name: briefing
+          path: reports/latest.md

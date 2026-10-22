@@ -1,0 +1,29 @@
+{
+  "$schema": "https://example.invalid/crypto-briefing/sources.schema.json",
+  "desk3BaseUrl": "https://api1.desk3.io/v1",
+  "cryptopanicBaseUrl": "https://cryptopanic.com/api/v1",
+  "alternativeBaseUrl": "https://api.alternative.me",
+  "binanceBaseUrl": "https://api.binance.com",
+  "enabled": ["desk3", "alternative", "binance", "cryptopanic"],
+  "watchCoins": ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "LINK", "DOT"],
+  "marketCoins": ["BTC", "ETH", "SOL", "BNB"],
+  "newsLimit": 30,
+  "endpoints": {
+    "desk3": {
+      "prices": "/market/mini/24hr",
+      "fearGreed": "/market/fear-greed",
+      "puell": "/market/puell-multiple",
+      "dominance": "/market/bitcoin/dominance",
+      "cycles": "/market/cycles",
+      "news": "/news/list",
+      "btcTrend": "/market/btc/trend",
+      "ethTrend": "/market/eth/trend",
+      "exchangeRate": "/market/exchangeRate"
+    }
+  },
+  "notes": [
+    "CryptoPanic requires CRYPTOPANIC_TOKEN; without a token the source is skipped.",
+    "Desk3 requires no key for the public endpoints used here.",
+    "Binance is used only for OHLCV candles (technical indicators); all other market data comes from Desk3."
+  ]
+}

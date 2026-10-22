@@ -1,0 +1,49 @@
+{
+  "name": "cryptocurrency-market-live-briefing",
+  "version": "2.0.0",
+  "description": "Zero-dependency crypto market intelligence: news aggregation, sentiment scoring, technical indicators, alerting, and multi-platform group-chat delivery.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "main": "src/index.js",
+  "bin": {
+    "crypto-intel": "bin/crypto-intel.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "config",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "start": "node bin/crypto-intel.js brief",
+    "news": "node bin/crypto-intel.js news",
+    "market": "node bin/crypto-intel.js market",
+    "brief": "node bin/crypto-intel.js brief",
+    "publish": "node bin/crypto-intel.js publish",
+    "doctor": "node bin/crypto-intel.js doctor",
+    "test": "node --test test/*.test.js",
+    "lint": "node scripts/check.js"
+  },
+  "keywords": [
+    "cryptocurrency",
+    "bitcoin",
+    "market-intelligence",
+    "sentiment-analysis",
+    "news-aggregation",
+    "telegram-bot",
+    "discord-webhook",
+    "slack-webhook",
+    "feishu-bot",
+    "qq-bot",
+    "openclaw"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "optionalDependencies": {
+    "ws": "^8.18.0"
+  }
+}

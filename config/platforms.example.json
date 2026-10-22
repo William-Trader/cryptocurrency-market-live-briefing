@@ -1,0 +1,53 @@
+{
+  "$comment": "Copy to config/platforms.json and fill in. Values may use env:NAME to read an environment variable. The file is gitignored.",
+  "telegram": {
+    "enabled": false,
+    "adapter": "telegram",
+    "botToken": "env:TELEGRAM_BOT_TOKEN",
+    "chatId": "env:TELEGRAM_CHAT_ID",
+    "messageThreadId": null,
+    "news": 5
+  },
+  "discord": {
+    "enabled": false,
+    "adapter": "discord",
+    "webhookUrl": "env:DISCORD_WEBHOOK_URL",
+    "username": "Crypto Briefing",
+    "news": 5
+  },
+  "slack": {
+    "enabled": false,
+    "adapter": "slack",
+    "webhookUrl": "env:SLACK_WEBHOOK_URL",
+    "news": 5
+  },
+  "feishu": {
+    "enabled": false,
+    "adapter": "feishu",
+    "webhookUrl": "env:FEISHU_WEBHOOK_URL",
+    "secret": "env:FEISHU_SIGN_SECRET",
+    "news": 5
+  },
+  "wecom": {
+    "enabled": false,
+    "adapter": "wecom",
+    "webhookUrl": "env:WECOM_WEBHOOK_URL",
+    "news": 5
+  },
+  "qq": {
+    "enabled": false,
+    "adapter": "qq",
+    "baseUrl": "env:ONEBOT_HTTP_URL",
+    "accessToken": "env:ONEBOT_ACCESS_TOKEN",
+    "groupId": "env:QQ_GROUP_ID",
+    "userId": null,
+    "news": 5
+  },
+  "custom": {
+    "enabled": false,
+    "adapter": "webhook",
+    "url": "env:BRIEFING_WEBHOOK_URL",
+    "secret": "env:BRIEFING_WEBHOOK_SECRET",
+    "payload": "briefing"
+  }
+}

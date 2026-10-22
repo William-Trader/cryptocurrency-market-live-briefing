@@ -1,343 +1,212 @@
-# 🏗️ 系统架构详解
-
-> 深入理解 William's Crypto Research System 的模块设计、数据流和技术选型。
+# Architecture
 
 ---
 
-## 1. 整体架构
+## 1. Layers
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                      用户层                               │
-│          (OpenClaw Agent / Cron / 手动运行)               │
-└────────────────────────┬─────────────────────────────────┘
-                         │ 触发信号（定时 / 手动）
-                         ▼
-┌──────────────────────────────────────────────────────────┐
-│                      脚本层                               │
-│                                                          │
-│   ┌──────────────┐  ┌────────────────┐  ┌────────────┐ │
-│   │daily-report  │  │ coin-screener  │  │ briefing   │ │
-│   │  (纯API聚合) │  │  (浏览器+评分)  │  │ (快速行情) │ │
-│   └──────┬───────┘  └───────┬────────┘  └──────┬─────┘ │
-│          │                  │                   │        │
-│          └──────────────────┼───────────────────┘        │
-│                             │                           │
-│                             ▼                           │
-│                  ┌────────────────────┐                 │
-│                  │    分析引擎        │                 │
-│                  │  (7维评分/互斥)    │                 │
-│                  └─────────┬──────────┘                 │
-└────────────────────────────┼────────────────────────────┘
-                             │ 结构化数据
-                             ▼
-┌──────────────────────────────────────────────────────────┐
-│                      数据层                              │
-│                                                          │
-│   ┌──────────────────────┐  ┌──────────────────────────┐ │
-│   │   Desk3 API          │  │    Coinglass              │ │
-│   │   (REST/JSON)        │  │    (浏览器自动化)          │ │
-│   │                      │  │                          │ │
-│   │  · 实时价格          │  │  · RSI热力图              │ │
-│   │  · 恐惧贪婪指数      │  │  · 资金费率               │ │
-│   │  · Puell倍数         │  │  · 多空比                 │ │
-│   │  · Pi Cycle顶部      │  │  · 爆仓热力图             │ │
-│   │  · BTC主导地位       │  │  · OI持仓量               │ │
-│   │  · BTC/ETH网络趋势   │  │                          │ │
-│   │  · 热门币            │  │                          │ │
-│   │  · 加密新闻          │  │                          │ │
-│   │  · 宏观政策新闻      │  │                          │ │
-│   │  · 市场日历          │  │                          │ │
-│   │  · 汇率              │  │                          │ │
-│   └──────────────────────┘  └──────────────────────────┘ │
-└──────────────────────────────────────────────────────────┘
-```
+~~~text
+              +-------------------+
+              |   CLI (bin/)      |
+              +---------+---------+
+                        |
+              +---------v---------+
+              |  src/index.js     |  system facade
+              +----+---------+----+
+                   |         |
+      +------------v--+   +--v--------------+
+      | news/         |   | market/         |
+      | aggregator    |   | quotes, cycles  |
+      | classifier    |   | indicators      |
+      | sentiment     |   | regime          |
+      | alerts        |   | correlation     |
+      +-------+-------+   +--------+--------+
+              |                    |
+              +---------+----------+
+                        |
+              +---------v---------+
+              |  briefing.js      |  canonical schema + verdict
+              +----+---------+----+
+                   |         |
+        +----------v--+   +--v----------------+
+        | render/     |   | delivery/         |
+        | markdown    |   | telegram, discord |
+        | plain, html |   | slack, feishu,    |
+        | embeds      |   | wecom, qq, hook   |
+        +-------------+   +-------------------+
+~~~
+
+Dependencies point downward only. Renderers and adapters never fetch data;
+collectors never format output. This is what makes one briefing portable.
 
 ---
 
-## 2. 数据源详解
+## 2. Data flow
 
-### 2.1 Desk3 API（主要数据源）
+1. **Collect** — Desk3 spot and cycle endpoints, Binance candles, optional
+   CryptoPanic. Each call is timeout-bounded and independently fallible.
+2. **Normalize** — provider rows become NewsItem objects or quote objects with a
+   single shape (symbol, price, change24hPct, timestamp).
+3. **Score** — keyword sentiment (-1..+1), category (12 classes), impact (1..10),
+   coin extraction, language detection.
+4. **Aggregate** — deduplicate by normalized title, compute the 0-100 sentiment
+   index, coin sentiment, top keywords, and alerts with cooldown.
+5. **Build** — assemble the briefing schema with asOf timestamps, source status,
+   errors, verdict, and disclaimer.
+6. **Render** — map the same object to a platform payload.
+7. **Deliver** — POST with retries, Retry-After handling, and secret resolution.
 
-**API 端点：** `https://api1.desk3.io/v1/`
-
-| 数据类型 | 端点 | 脚本 | 特点 |
-|---------|------|------|------|
-| 实时价格 | `/market/mini/24hr` | `prices.mjs` | Binance 实时数据，延迟 <1s |
-| 恐惧贪婪 | `/market/fear-greed` | `fear-greed.mjs` | Alternative.me 同源，多源验证 |
-| Puell倍数 | `/market/puell-multiple` | `puell.mjs` | 矿工收入模型，历史数据完整 |
-| Pi Cycle | `/market/pi-cycle-top` | `pi-cycle.mjs` | 111DMA vs 2×350DMA 交叉检测 |
-| BTC主导率 | `/market/bitcoin/dominance` | `dominance.mjs` | BTC/ETH/Others 占比追踪 |
-| BTC网络趋势 | `/market/btc/trend` | `btc-trend.mjs` | 算力 + 难度，周期领先指标 |
-| ETH网络趋势 | `/market/eth/trend` | `eth-trend.mjs` | ETH 算力 + 难度 |
-| 山寨季指数 | `/market/altcoin/season` | `altcoin-season.mjs` | 与 BTC 前 10 币对比 |
-| 周期综合 | `/v1/market/cycles` | `cycles.mjs` | MCP 端点，多指标综合 |
-| 周期详情 | `/market/cycleIndicators` | `cycle-indicators.mjs` | 30+ 指标深度分析 |
-| 热门币 | `/market/mini/24hr` | `trending.mjs` | 成交额排序 |
-| 新闻 | `/news/list` | `news.mjs` | 分类（加密/政策） |
-| 市场日历 | `/market/calendar` | `calendar.mjs` | 重要数据发布时间 |
-| 汇率 | `/market/exchangeRate` | `exchange-rate.mjs` | 美元指数/DXY |
-
-### 2.2 Coinglass（链上数据，浏览器爬取）
-
-**为什么需要浏览器爬取？**
-- CoinGlass 页面是 SPA（React），数据通过 JS 动态渲染，API 无法直接获取
-- 使用 Playwright 模拟真实浏览器，加载页面 → 等待表格渲染 → 提取 DOM 数据
-
-**爬取页面：**
-
-| 页面 | URL | 数据 | 耗时 |
-|------|-----|------|------|
-| RSI 热力图 | `/zh/pro/i/RsiHeatMap` | 50+ 币种的 RSI（15m/1h/4h/12h/24h） | ~5s |
-| 资金费率 | `/zh/FundingRate` | 各交易所 8h 费率 + 1日费率 | ~3s |
-| 多空比 | `/zh/LongShortRatio` | 大账户持仓/人数多空比 | ~3s |
-| 爆仓热力图 | `/zh/LiquidationData` | 多空爆仓密集价位 | ~3s |
-| OI 持仓量 | `/zh/open-interest` | 各币种合约持仓量变化 | ~3s |
-
-**技术要点：**
-```javascript
-// 等待 SPA 表格渲染完成的策略
-const waitTable = (minCells = 50, maxMs = 18000) => new Promise(resolve => {
-  let waited = 0;
-  const check = () => {
-    page.evaluate(() => document.querySelectorAll('.ant-table-cell').length)
-      .then(c => (c >= minCells || waited >= maxMs) ? resolve(c) : (waited += 1000, setTimeout(check, 1000)))
-      .catch(() => (waited += 1000, setTimeout(check, 1000)));
-  };
-  check();
-});
-```
+Any stage may degrade. A failed news source removes the news section but still
+delivers market context, and vice versa. The builder only throws when every
+section failed.
 
 ---
 
-## 3. 分析引擎设计
+## 3. Briefing schema
 
-### 3.1 7 维评分体系
+Schema id: **crypto.briefing/2**
 
-```
-┌─────────────────────────────────────────────────┐
-│              品种综合评分（0-100分）             │
-│                                                  │
-│  ┌─────────────┐                                 │
-│  │  资金费率   │ ← 最核心，权重最高               │
-│  │  (最高40分) │   资金费率极负(-1%以下)=做多信号  │
-│  └──────┬──────┘   资金费率极高(+1%以 上)=做空信号│
-│         │                                       │
-│  ┌──────▼──────┐                                │
-│  │   RSI      │   超卖/超买分级评分              │
-│  │  (最高30分) │   RSI<25=做多 / RSI>80=做空     │
-│  └──────┬──────┘                                │
-│         │                                       │
-│  ┌──────▼──────┐                                │
-│  │  24h涨幅   │   暴涨/崩跌识别                  │
-│  │  (最高20分) │   +50%=做空风险 / -20%=做多机会  │
-│  └──────┬──────┘                                │
-│         │                                       │
-│  ┌──────▼──────┐                                │
-│  │  OI变化    │   价格-OI分歧判断                 │
-│  │  (最高25分) │   价格涨+OI降=假突破⚠️           │
-│  └──────┬──────┘   价格涨+OI增=真突破✅           │
-│         │                                       │
-│  ┌──────▼──────┐                                │
-│  │  多空比    │   大户vs散户分歧                  │
-│  │  (最高15分) │   多空比<0.7=散户做空=利于做多   │
-│  └──────┬──────┘                                │
-│         │                                       │
-│  ┌──────▼──────┐                                │
-│  │  爆仓热力图│   多空博弈激烈价位识别            │
-│  │  (最高10分) │   空头爆仓密集=利于做多          │
-│  └──────┬──────┘                                │
-│         │                                       │
-│  ┌──────▼──────┐                                │
-│  │  宏观适配  │   恐惧贪婪+山寨季共振             │
-│  │  (最高10分) │   极度恐惧+超卖=强做多信号       │
-│  └─────────────┘                                │
-└─────────────────────────────────────────────────┘
-```
+~~~json
+{
+  "schema": "crypto.briefing/2",
+  "id": "brief_20261022T060000Z_653eb4",
+  "generatedAt": "2026-10-22T06:00:00.000Z",
+  "asOf": { "market": "...", "news": "...", "generated": "..." },
+  "window": { "candles": "1h", "newsLimit": 30 },
+  "market": {
+    "quote": "USDT",
+    "prices": [{ "symbol": "BTC", "price": 82816.51, "change24hPct": 0.17, "timestamp": 0 }],
+    "fearGreed": { "value": 53, "classification": "Neutral" },
+    "puell": { "value": 1.12, "percentile": 0.4 },
+    "dominance": { "btc": 60.07, "eth": 8.4, "others": 31.53 },
+    "regime": { "regime": "range", "momentum20": -0.73, "confidence": 0.3 },
+    "technicals": { "BTC": { "bias": "bearish", "rsi14": 36.84, "trend": "down" } },
+    "correlation": { "base": "BTC", "values": { "ETH": 0.91 } }
+  },
+  "news": {
+    "items": [{ "title": "...", "category": "WHALE", "sentiment": 0.6, "impactScore": 9 }],
+    "sentiment": { "index": 56, "label": "neutral", "trend": "flat" },
+    "coinSentiments": { "ETH": { "count": 1, "trend": "bullish" } },
+    "alerts": []
+  },
+  "verdict": { "stance": "neutral", "label": "Wait and see", "reasoning": "..." },
+  "sources": [{ "name": "Desk3 Spot", "status": "ok" }],
+  "errors": [],
+  "disclaimer": "..."
+}
+~~~
 
-### 3.2 互斥逻辑（防止矛盾信号）
+Rules:
 
-**核心原则：同一币种同一时间只出现在做多 OR 做空，不会同时出现。**
-
-```
-同一币种触发做多 AND 做空信号时：
-  ├── longScore ≥ shortScore  → 保留做多，清除做空
-  └── longScore < shortScore  → 保留做空，清除做多
-
-RSI 方向过滤：
-  ├── RSI > 70（超买）+ longScore > 0  → 清除做多信号
-  └── RSI < 35（超卖）+ shortScore > 0 → 清除做空信号
-
-资金费率极值过滤：
-  └── VTHO 同时触发：资金费率极负(-1.66%) 但价格已暴涨(+52%)
-      → 做多信号保留，但标记"价格已涨需谨慎"
-```
-
-### 3.3 Price-OI 分歧判断
-
-这是识别**假突破**的关键逻辑：
-
-| 价格 | OI（持仓量）| 信号 | 含义 |
-|------|------------|------|------|
-| 涨 | 增 | 真突破 ✅ | 新资金入场推动，价格可持续 |
-| 涨 | 降 | 假突破 ⚠️ | 存量资金拉盘，无实质支撑 |
-| 跌 | 降 | 多头离场 | 看跌，但去杠杆有助于见底 |
-| 跌 | 增 | 空头加仓 | 下跌趋势确认，慎接飞刀 |
+- **asOf** is mandatory; consumers must be able to tell how old a number is.
+- **sources** reports per-provider status; a degraded run is visible, not silent.
+- **errors** lists failed sections; absence means every requested section loaded.
+- **disclaimer** is always present so downstream bots cannot drop it accidentally.
 
 ---
 
-## 4. 数据流详解
+## 4. Sentiment model
 
-### 4.1 crypto-daily-report.mjs（纯 API 路径）
+Keyword lexicon with contrastive counts:
 
-```
-启动
-  │
-  ▼
-┌─────────────────────────────┐
-│  Promise.allSettled         │  ← 并行拉取，无阻塞
-│  ┌─────────────────────┐  │
-│  │ getPrices()         │  │──→ BTC/ETH/SOL 价格
-│  │ getFearGreed()      │  │──→ 恐惧贪婪指数
-│  │ getAltSeason()      │  │──→ 山寨季指数
-│  │ getDominance()      │  │──→ BTC 主导率
-│  │ getPuell()         │  │──→ Puell 倍数
-│  │ getPiCycle()       │  │──→ Pi Cycle 状态
-│  │ getBtcTrend()      │  │──→ BTC 算力/难度
-│  │ getEthTrend()      │  │──→ ETH 算力/难度
-│  │ getTrending()      │  │──→ TOP10 热门币
-│  │ getNews(1)         │  │──→ 加密行业新闻
-│  │ getNews(3)         │  │──→ 宏观政策新闻
-│  │ getCalendar()      │  │──→ 市场日历
-│  │ getCycleComposite()│  │──→ 周期综合分析
-│  │ getExchangeRate()  │  │──→ 汇率
-│  └─────────────────────┘  │
-└────────────┬──────────────┘
-             │
-             ▼
-┌─────────────────────────────┐
-│  汇总格式化                  │  ← 13 个结果合并为文本
-│  ├─ 核心行情（一）            │
-│  ├─ 情绪指标（二）            │
-│  ├─ 技术仪表盘（三）          │
-│  ├─ 周期综合（四）            │
-│  ├─ 热门币（五）              │
-│  ├─ 加密新闻（六）            │
-│  ├─ 政策新闻（七）            │
-│  ├─ 市场日历（八）            │
-│  └─ 宏观汇率（九）            │
-└────────────┬────────────────┘
-             │
-             ▼
-         控制台输出
-    （或推送到通知渠道）
-```
+~~~text
+score = (bullish_hits - bearish_hits) / max(3, total_hits)
+~~~
 
-### 4.2 coin-screener.mjs（浏览器 + 评分路径）
+Range -1..+1. The market index compresses the mean into 0-100:
 
-```
-启动
-  │
-  ▼
-┌──────────────────────────────┐
-│ Step 1: 宏观数据预拉取        │  ← 并行（纯 API，约 1-2s）
-│  ├─ fear-greed.mjs          │
-│  └─ altcoin-season.mjs      │
-└────────────┬─────────────────┘
-             │
-             ▼
-┌──────────────────────────────┐
-│ Step 2: 启动 Playwright       │  ← 约 2-3s（浏览器冷启动）
-│  ├─ chromium.launch()        │
-│  ├─ newContext()            │
-│  └─ newPage()               │
-└────────────┬─────────────────┘
-             │
-             ▼
-┌──────────────────────────────┐
-│ Step 3: 依次爬取 Coinglass    │  ← 约 10-15s（SPA 等待）
-│  ┌─────────────────────────┐ │
-│  │ ① RSI热力图              │ │──→ 50+ 币种 RSI 数据
-│  │ ② 资金费率表              │ │──→ 各所 8h + 1日费率
-│  │ ③ 多空比                  │ │──→ 大账户持仓/人数比
-│  │ ④ 爆仓热力图              │ │──→ 多空爆仓密集价位
-│  │ ⑤ 首页总览                │ │──→ 全网 OI/成交额
-│  └─────────────────────────┘ │
-└────────────┬─────────────────┘
-             │
-             ▼
-┌──────────────────────────────┐
-│ Step 4: 7维评分引擎           │  ← 内存计算，< 100ms
-│  ├─ RSI 评分                │
-│  ├─ 资金费率评分             │
-│  ├─ 24h涨幅评分             │
-│  ├─ OI 变化评分             │
-│  ├─ 多空比评分              │
-│  ├─ 爆仓热力图评分           │
-│  └─ 宏观适配评分             │
-└────────────┬─────────────────┘
-             │
-             ▼
-┌──────────────────────────────┐
-│ Step 5: 互斥过滤 + 排序       │
-│  ├─ 矛盾信号过滤             │
-│  ├─ 按评分排序               │
-│  └─ 截取 TOP3 做多 / TOP3 做空│
-└────────────┬─────────────────┘
-             │
-             ▼
-         报告输出
-    （推送至用户）
-```
+~~~text
+index = clamp(50 + mean_sentiment * 50, 0, 100)
+~~~
+
+Labels: 0-24 extreme fear, 25-39 fear, 40-59 neutral, 60-74 greed,
+75-100 extreme greed. Trend compares the new index with the previous run
+(rising / falling / flat, threshold 2 points).
+
+Limitations: keyword scoring is fast, deterministic, and explainable, but it can
+misread sarcasm, negation, and macro headlines that merely mention a coin. The
+engine labels every score so a human can override it.
 
 ---
 
-## 5. 关键设计决策
+## 5. Technical analysis
 
-### 5.1 为什么 Desk3 API + Coinglass 组合？
+Candles come from Binance klines and are processed oldest-first.
 
-| 数据源 | 优势 | 劣势 | 覆盖场景 |
-|--------|------|------|---------|
-| **Desk3 API** | 稳定、快速、JSON 结构清晰、多指标 | 无 RSI/资金费率等链上数据 | 核心行情、情绪、周期指标 |
-| **Coinglass** | RSI、资金费率、多空比、爆仓（专业级） | SPA 需要浏览器爬取、慢 | 品种优选、链上信号 |
-| **Binance API** | 原始价格数据 | 官方 API 在部分环境被限流 | 备选价格源 |
+| Indicator | Parameters | Output |
+|-----------|------------|--------|
+| SMA | 20, 50 | trend direction |
+| EMA | configurable | used by MACD |
+| RSI | 14 | overbought / oversold |
+| MACD | 12/26/9 | histogram bias |
+| Bollinger | 20, 2σ | position vs bands |
+| ATR | 14 | volatility |
 
-**结论：** Desk3 负责宏观面，Coinglass 负责微观信号，两者互补。
+Insufficient candles return **available: false** and a reason. The system never
+invents values to fill a table.
 
-### 5.2 为什么用 Playwright 而不是 Puppeteer？
+Regime classification uses SMA20 vs SMA50 plus 20-bar momentum:
 
-- Playwright 对 Chromium 支持更好，跨平台兼容性强
-- OpenClaw 内置了 `playwright-chromium` 包
-- 等待机制（`waitForFunction`）比 Puppeteer 更可靠
-
-### 5.3 为什么是并行 + 互斥策略？
-
-- **并行**：最大化 API 调用的吞吐量（13 个 API 同时拉取）
-- **互斥**：避免 RSI 和资金费率给出矛盾信号时让用户困惑
-- **评分制**：不是简单的"做多/不做多"二值判断，而是给出置信度（⭐⭐⭐）
+- **bull**: SMA20 > SMA50 and momentum > 2%
+- **bear**: SMA20 < SMA50 and momentum < -2%
+- **range**: everything else
 
 ---
 
-## 6. 性能基准
+## 6. Failure model
 
-| 脚本 | 典型耗时 | 数据量 |
-|------|---------|-------|
-| `prices.mjs` | ~200ms | 3 个币种 |
-| `fear-greed.mjs` | ~300ms | 1 个指数 |
-| `crypto-daily-report.mjs` | ~2-5s | 13 类数据 |
-| `briefing.mjs` | ~3s | 价格+情绪+新闻+热门 |
-| `coin-screener.mjs` | ~15-25s | 50+ 币种 + 4 个指标 |
-| `crypto-monitor.mjs` | ~20-30s | 完整版 Coinglass 数据 |
+| Failure | Effect | Recovery |
+|---------|--------|----------|
+| Desk3 spot down | Market section missing; error recorded | Retry next run |
+| Binance blocked | Technicals unavailable; quotes and news still delivered | Automatic |
+| News source down | News section missing; market still delivered | Automatic |
+| All sources down | Builder throws; CLI exits 1; no empty message sent | Alert the operator |
+| Platform rejects payload | Adapter records error; other platforms still receive | Fix config |
+| 429 | Backoff, Retry-After honored, limited retries | Automatic |
+
+The guiding rule: **partial data with an explicit marker beats invented data.**
 
 ---
 
-## 7. 扩展方向
+## 7. Security
 
-### 如果你想继续增强系统，可以考虑：
+- Secrets are resolved from **env:NAME** references at send time.
+- config/platforms.json is gitignored.
+- HTTP errors redact token-like query parameters.
+- Webhook payloads may be signed with HMAC-SHA256 (timestamp.body).
+- The optional KeyStore encrypts API keys with AES-256-GCM (scrypt-derived key).
+- Logs never print secret values; mask() is available for diagnostics.
 
-1. **更多数据源**：加入 Glassnode API、CryptoQuant 做链上深度分析
-2. **机器学习**：用历史数据训练信号权重，而非人工调参
-3. **回测引擎**：将评分信号接入 backtrader，验证历史胜率
-4. **Dashboard**：用 Grafana 可视化多指标时间序列
-5. **多交易所**：扩展到 Bybit、OKX 的合约数据
-6. **Alert 系统**：当某个指标触发阈值时主动推送告警
+---
+
+## 8. Design decisions
+
+**Zero runtime dependencies.** Node 18+ ships fetch, crypto, and test runner.
+Fewer dependencies means fewer supply-chain and upgrade failures for a bot that
+must run unattended.
+
+**No simulated data.** The upstream v6 package generated fake on-chain and
+macro numbers. That is unacceptable for a research tool: v2 removes every mock
+path. If a provider is down, the section is marked unavailable.
+
+**One schema, many renderers.** Platform drift is the main maintenance cost in
+multi-chat bots. Renderers are pure functions over the briefing, covered by
+offline tests.
+
+**Adapters are dumb.** They translate a payload into a POST request. Business
+logic stays upstream, so adding a platform never touches scoring code.
+
+**Scheduling is external.** The process is a one-shot command. cron, systemd,
+launchd, or an OpenClaw automation owns timing; the code does not loop or sleep.
+
+---
+
+## 9. Extension points
+
+| Goal | Where |
+|------|-------|
+| New data provider | src/data/, return normalized rows |
+| New indicator | src/market/indicators.js |
+| New category | CATEGORIES + keyword lists in src/news/engine.js |
+| New output format | src/render/, add a renderer and a dispatcher case |
+| New chat platform | src/delivery/, implement send() and register the adapter |
+| New score/verdict rule | src/briefing.js verdictFor() |

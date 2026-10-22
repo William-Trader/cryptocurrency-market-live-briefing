@@ -1,5 +1,10 @@
 {
   "slug": "cryptocurrency-market-live-briefing",
-  "version": "1.0.2",
-  "publishedAt": 1773214003730
+  "version": "2.0.0",
+  "publishedAt": 1761118800000,
+  "upstream": {
+    "package": "crypto-intelligence",
+    "version": "6.0.0",
+    "importedAt": "2026-10-22"
+  }
 }
