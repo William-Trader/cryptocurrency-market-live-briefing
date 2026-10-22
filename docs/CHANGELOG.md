@@ -3,6 +3,8 @@
 All notable changes to this project are documented here.
 Format: Keep a Changelog. Versioning: semantic versioning.
 
+**English** | [简体中文](CHANGELOG.zh-CN.md)
+
 ---
 
 ## [2.0.0] - 2026-10-22
