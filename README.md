@@ -1,235 +1,202 @@
-# 🕵️ Crypto Research System
+# Crypto Market Live Briefing
 
-> 基于 OpenClaw + Desk3 API + Coinglass 的加密货币实时监测与品种优选系统。每 4 小时自动推送，覆盖 BTC/ETH/SOL 核心行情、市场情绪、30+ 技术指标，以及基于 7 维评分的山寨币做多/做空信号。
+Zero-dependency crypto market intelligence for chat platforms: news aggregation,
+sentiment scoring, technical context, risk alerts, and one canonical briefing
+that renders natively for Telegram, Discord, Slack, Feishu/Lark, WeCom, QQ
+(OneBot v11), or any HTTP webhook.
 
-**适用人群：** 加密货币研究员、量化交易者、被动投资者  
-**技术栈：** Node.js + Playwright + Desk3 API + Coinglass Web Scraping  
-**运行方式：** OpenClaw Skill（个人部署）/ Cron 定时触发
-
----
-
-## 📁 项目结构
-
-```
-cryptocurrency-market-live-briefing/
-├── SKILL.md                          # OpenClaw Skill 入口
-├── _meta.json                        # 版本元信息
-├── docs/                             # 👈 GitHub 发布文档（你在这里）
-│   ├── README.md                     # 主说明文档
-│   ├── SETUP.md                      # 布设指南
-│   ├── ARCHITECTURE.md               # 系统架构详解
-│   ├── SCRIPTS.md                    # 所有脚本用法速查
-│   └── INDICATORS.md                 # 指标说明 & 解读指南
-└── scripts/                          # 核心脚本
-    ├── crypto-daily-report.mjs        # 🏆 每日深度日报（聚合所有数据，AI 报告首选）
-    ├── crypto-monitor.mjs             # 综合播报（价格 + 情绪 + Coinglass 数据）
-    ├── coin-screener.mjs              # 🎯 品种优选 V2（多指标评分，推荐主力脚本）
-    ├── briefing.mjs                   # 🚨 快速行情播报（纯 API，约 3 秒）
-    ├── prices.mjs                     # 💰 核心价格
-    ├── fear-greed.mjs                 # 😱 恐惧贪婪指数
-    ├── altcoin-season.mjs             # 🪙 山寨季指数
-    ├── puell.mjs                      # ⛏️ Puell 倍数
-    ├── pi-cycle.mjs                   # 🔄 Pi Cycle 顶部指标
-    ├── dominance.mjs                  # 📊 BTC 主导地位
-    ├── btc-trend.mjs                  # 📈 BTC 网络趋势（算力/难度）
-    ├── eth-trend.mjs                  # 📈 ETH 网络趋势（算力/难度）
-    ├── cycle-indicators.mjs            # ⛓️ 30+ 周期指标详解
-    ├── cycles.mjs                      # 🔬 综合周期分析
-    ├── trending.mjs                    # 🔥 热门币 TOP10
-    ├── news.mjs                        # 📰 新闻（加密行业 / 宏观政策）
-    ├── calendar.mjs                    # 📅 市场日历
-    └── exchange-rate.mjs               # 💱 宏观汇率
-```
+**Version 2.0.0** · Node.js >= 18 · PolyForm Noncommercial 1.0.0
 
 ---
 
-## ⚡ 快速开始
+## Why this exists
 
-### 前置要求
+Most "crypto alert" bots are a pile of scripts that print to a terminal, with
+platform glue bolted on per chat app. This project separates the two:
 
-| 依赖 | 版本 | 说明 |
-|------|------|------|
-| **Node.js** | ≥ 18 | 运行所有脚本 |
-| **npm** | 最新 | 安装依赖 |
-| **Playwright** | 最新 | 浏览器自动化（用于 Coinglass 爬取） |
-| **Chrome/Chromium** | 系统已装 | `/usr/bin/google-chrome-stable` |
+1. **Collect** market and news data into a typed briefing object.
+2. **Render** that object once per platform (HTML, embeds, blocks, cards, plain text).
+3. **Deliver** through small adapters with retries and secret handling.
 
-### 一键安装
-
-```bash
-# 1. 安装 Playwright（如果还没有）
-npm install playwright-chromium
-npx playwright install chromium
-
-# 2. 克隆或复制整个 skill 目录到你的 OpenClaw workspace/skills/
-# 3. 直接运行（纯 API 脚本，无需浏览器）
-node scripts/crypto-daily-report.mjs
-```
-
-### 运行你的第一条日报
-
-```bash
-# 🏆 推荐：生成完整日报（一次性拉取所有数据，约 2-5 秒）
-node scripts/crypto-daily-report.mjs
-
-# 🚨 快速行情（约 3 秒）
-node scripts/briefing.mjs
-
-# 🎯 品种优选（约 20 秒，含浏览器）
-node scripts/coin-screener.mjs
-```
+The result is one pipeline you can point at any group chat, with no duplicated
+formatting logic and no vendor lock-in.
 
 ---
 
-## 🔄 定时任务设置（推荐）
+## Features
 
-将以下 cron 表达式加入 OpenClaw 配置，实现每 4 小时自动推送：
-
-```
-0 */4 * * *  node /path/to/scripts/coin-screener.mjs
-```
-
-或者在 OpenClaw 中配置 Heartbeat 自动触发。
-
----
-
-## 🏗️ 系统架构
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    数据源层                          │
-│                                                      │
-│  ┌──────────────┐     ┌──────────────────────────┐  │
-│  │  Desk3 API   │     │      Coinglass           │  │
-│  │  (REST API)  │     │   (浏览器自动化爬取)      │  │
-│  └──────┬───────┘     └──────────┬───────────────┘  │
-│         │                        │                   │
-│  价格/情绪/周期指标        RSI热力图/资金费率/      │
-│  新闻/日历/汇率            多空比/爆仓/OI           │
-└─────────┼──────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────┐
-│                   分析层                              │
-│                                                      │
-│  7维评分引擎                                          │
-│  ┌─────────────────────────────────────────────┐   │
-│  │ ① RSI   ② 资金费率  ③ 24h涨幅  ④ OI变化  │   │
-│  │ ⑤ 多空比 ⑥ 爆仓热力图  ⑦ 宏观适配        │   │
-│  └─────────────────────────────────────────────┘   │
-│  互斥逻辑：同一币种只出现在做多 OR 做空              │
-│  Price-OI 分歧：价格涨+OI降=假突破⚠️               │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│                   输出层                             │
-│                                                      │
-│  📝 每日深度日报 → AI 报告生成                       │
-│  🚨 快速行情播报 → 群推送 / 个人通知                 │
-│  🎯 品种优选报告 → 做多/做空信号 + 止损止盈          │
-│  📊 技术仪表盘 → Puell/Pi Cycle/Dominance 等        │
-└─────────────────────────────────────────────────────┘
-```
-
-详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **News intelligence** — Desk3 News and optional CryptoPanic, normalized,
+  deduplicated, categorized into 12 classes, scored for sentiment (-1..+1) and
+  impact (1..10).
+- **Market sentiment index** — 0-100 composite with trend, coin-level
+  sentiment, and keyword tracking.
+- **Market context** — spot quotes, Fear & Greed, BTC dominance, Puell multiple,
+  cycle metrics, RSI/MACD/Bollinger/ATR, regime detection, BTC correlation.
+- **Alerts** — breaking news, regulatory action, security incidents, whale flow,
+  high-impact headlines, with per-rule cooldown.
+- **One briefing schema** — deterministic JSON that every renderer consumes.
+- **Multi-platform delivery** — Telegram, Discord, Slack, Feishu/Lark, WeCom,
+  QQ via OneBot v11, generic HMAC-signed webhook.
+- **Operations-first** — doctor command, structured logs, dry-run, retries,
+  rate-limit aware HTTP, no fabricated data.
+- **Zero runtime dependencies** — Node built-ins only. WebSocket streaming is
+  optional and activates only if the optional ws package is installed.
 
 ---
 
-## 📊 核心功能说明
+## Quick start
 
-### 🏆 crypto-daily-report.mjs — 每日日报（首选）
+~~~bash
+git clone <your-repo> cryptocurrency-market-live-briefing
+cd cryptocurrency-market-live-briefing
 
-一次性并行拉取 **13 类数据**，耗时约 2-5 秒，专为 AI 报告生成设计：
+node bin/crypto-intel.js doctor
+node bin/crypto-intel.js news --limit 10
+node bin/crypto-intel.js market
+node bin/crypto-intel.js brief --format markdown
+~~~
 
-| 数据类别 | 内容 |
-|---------|------|
-| 核心行情 | BTC / ETH / SOL 实时价格 + 24h 涨跌 |
-| 情绪指标 | 恐惧贪婪指数 + 山寨季指数 |
-| 技术仪表盘 | Puell 倍数 + Pi Cycle + BTC 主导率 + BTC/ETH 网络趋势 |
-| 周期综合 | 持有信号 vs 卖出信号比率 |
-| 热门币 | 24h 成交额 TOP10 |
-| 新闻 | 加密行业新闻 + 宏观政策新闻 |
-| 市场日历 | 本周重要数据发布日程 |
-| 宏观汇率 | 美元指数 / EUR-USD 等 |
+No install step is required. If you want the npm scripts and the optional
+streaming dependency:
 
-### 🎯 coin-screener.mjs — 品种优选 V2（主力脚本）
+~~~bash
+npm install
+npm test
+~~~
 
-7 维度多指标共振评分系统，对标专业级 Crypto Screener：
+### Publish to a chat platform
 
-| 评分维度 | 指标 | 权重 |
-|---------|------|------|
-| RSI | 超卖/超买分级 | 高 |
-| 资金费率 | 多空挤压程度（**最核心**）| 最高 |
-| 24h 涨幅 | 暴涨暴跌识别 | 中 |
-| OI 变化 | 资金真实流向判断 | 高 |
-| 多空比 | 大户 vs 散户分歧 | 中 |
-| 爆仓热力图 | 多空博弈激烈价位 | 中 |
-| 宏观适配 | F&G + Alt Season 共振 | 低 |
-
-**输出格式：**
-```
-🎯 做多推荐
-  📈 BTC/USDT  ⭐⭐⭐  🔴 高风险  [强信号]
-     价格: $64,500  |  RSI: 28.5  |  24h: -8.2%
-     资金费率: -1.66% → 空头挤压
-     做多信号: RSI极端超卖(28.5) + 资金费率极负(-1.66%)→空头挤压
-     综合评分: 65分
-```
-
-### 📊 crypto-monitor.mjs — 综合播报（含浏览器数据）
-
-完整版播报，包含 Coinglass 的 RSI 热力图、资金费率、多空比、爆仓热力图，适合需要链上数据的深度分析。
+~~~bash
+cp config/platforms.example.json config/platforms.json
+# edit config/platforms.json, or export the referenced environment variables
+node bin/crypto-intel.js publish --platform telegram --dry-run
+node bin/crypto-intel.js publish --platform telegram
+~~~
 
 ---
 
-## 📖 文档目录
+## CLI
 
-| 文档 | 内容 |
-|------|------|
-| **[SETUP.md](docs/SETUP.md)** | 🔧 从零布设完整系统（适合新手） |
-| **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | 🏗️ 系统架构、模块设计、数据流详解 |
-| **[SCRIPTS.md](docs/SCRIPTS.md)** | 📋 所有脚本用法速查表 |
-| **[INDICATORS.md](docs/INDICATORS.md)** | 📈 指标说明 & 实战解读指南 |
+| Command | Purpose |
+|---------|---------|
+| **news** | Aggregated, scored headlines and alerts |
+| **market** | Spot quotes, cycle metrics, regime |
+| **brief** | Full briefing in markdown, plain, JSON, or a platform payload |
+| **publish** | Build a briefing and deliver it to configured platforms |
+| **doctor** | Check Node, data endpoints, and delivery configuration |
+| **config** | Print effective configuration with secrets masked |
 
----
+Common flags: **--json**, **--limit N**, **--news N**, **--coins BTC,ETH**,
+**--format**, **--out FILE**, **--platform NAME**, **--dry-run**,
+**--news-only**, **--market-only**.
 
-## 🔧 环境变量（可选）
-
-如需自定义，可设置以下环境变量：
-
-```bash
-export DESK3_API_KEY=your_api_key    # Desk3 API Key（如需要）
-export CHROME_PATH=/usr/bin/google-chrome-stable
-export LANGUAGE=zh                   # 输出语言：zh / en
-```
+See [docs/SCRIPTS.md](docs/SCRIPTS.md) for the full reference.
 
 ---
 
-## ⚠️ 免责声明
+## Output
 
-本系统数据仅供参考，不构成投资建议。加密货币市场风险极高，请务必做好止损，保护好本金。
+~~~text
+# Crypto Market Briefing
+
+**Wait and see** — No edge from trend or sentiment; favor range tactics and small size.
+
+| Coin | Price | 24h | Trend | RSI | Bias |
+|------|-------|-----|-------|-----|------|
+| BTC | 82,816.51 | +0.17% | ▲ | 36.84 | bearish |
+| ETH | 2,438.54 | -0.02% | ▼ | 37.90 | bearish |
+
+Fear & Greed **53** (Neutral) · BTC dominance **60.1%** · Regime **range**
+
+## News sentiment
+
+Index **56/100** (neutral) · trend flat · 5 positive / 3 negative / 2 neutral
+~~~
+
+The same run can be emitted as Telegram HTML, Discord embeds, Slack blocks, or
+a Feishu interactive card without refetching data.
 
 ---
 
-## 🙏 致谢
+## Platform support
 
-- **Desk3** — 提供高质量加密市场 API（[desk3.io](https://www.desk3.io)）
-- **CoinGlass** — 提供 RSI 热力图、资金费率、爆仓数据等链上数据
-- **OpenClaw** — 提供 Agent 平台支持（[openclaw.ai](https://www.openclaw.ai)）
+| Platform | Adapter | Payload | Auth |
+|----------|---------|---------|------|
+| Telegram | **telegram** | HTML message, auto-chunked at 3800 chars | Bot token + chat id |
+| Discord | **discord** | Rich embed | Webhook URL |
+| Slack | **slack** | Block Kit | Incoming webhook |
+| Feishu / Lark | **feishu** | Interactive card | Webhook URL (+ optional sign secret) |
+| WeCom | **wecom** | Markdown message | Group robot webhook |
+| QQ | **qq** | Plain text via OneBot v11 | HTTP endpoint + access token |
+| Anything else | **webhook** | JSON briefing, optional HMAC-SHA256 | URL (+ optional secret) |
+
+Setup steps and payload details: [docs/PLATFORM-INTEGRATION.md](docs/PLATFORM-INTEGRATION.md).
 
 ---
 
-## English
+## Repository layout
 
-**Crypto Research System** — a real-time cryptocurrency monitoring and coin-selection toolkit. It scrapes and aggregates market data (Desk3 API + CoinGlass web scraping via Playwright), then produces periodic briefings: core BTC/ETH/SOL quotes, market sentiment (Fear & Greed, Altcoin Season), 30+ cycle indicators (Puell, Pi Cycle, dominance, hashrate/difficulty), news and calendar, plus a **7-dimension scoring screener** (RSI, funding rate, 24h change, open interest, long/short ratio, liquidation heatmap, macro fit) that outputs long/short signals.
+~~~text
+.
+├── bin/crypto-intel.js          # CLI entry point
+├── src/
+│   ├── core/                    # http, logging, config, crypto helpers
+│   ├── data/                    # Desk3, Binance, CryptoPanic clients
+│   ├── news/                    # normalization, classification, sentiment, alerts
+│   ├── market/                  # indicators, regime, correlation, orchestration
+│   ├── render/                  # one briefing -> platform payloads
+│   ├── delivery/                # transport adapters
+│   ├── briefing.js              # canonical schema + verdict
+│   └── index.js                 # system facade
+├── config/
+│   ├── sources.json             # data endpoints (no secrets)
+│   └── platforms.example.json   # delivery targets
+├── test/                        # node:test suite, offline
+└── docs/                        # setup, architecture, handover, changelog
+~~~
 
-**Stack:** Node.js + Playwright + Desk3 API + CoinGlass scraping. Runs as an OpenClaw skill or via cron (e.g. every 4h).
+---
 
-> Research only. Not investment advice.
+## Data sources
+
+| Source | Used for | Key required |
+|--------|----------|--------------|
+| Desk3 API | spot quotes, Fear & Greed, Puell, dominance, cycles, news | no |
+| Binance | OHLCV candles for technical indicators | no |
+| Alternative.me | Fear & Greed fallback | no |
+| CryptoPanic | additional news coverage | yes (optional) |
+
+Every briefing carries **asOf**, per-source status, and a disclaimer. A failing
+source degrades the briefing instead of fabricating values.
+
+> Research and risk awareness only. Not investment advice. Verify prices on the
+> exchange before acting.
+
+---
+
+## Operations
+
+- **Schedule**: run **publish** from cron, systemd, launchd, or an OpenClaw
+  automation. Example units are in [docs/SETUP.md](docs/SETUP.md).
+- **Health**: **node bin/crypto-intel.js doctor** exits non-zero on failure.
+- **Logs**: JSON-friendly key=value metadata, secrets redacted.
+- **Dry run**: **--dry-run** renders and validates without network delivery.
+- **Retries**: 408/425/429/5xx with exponential backoff and Retry-After support.
+
+---
+
+## Documentation
+
+- [docs/SETUP.md](docs/SETUP.md) — install, configure, schedule
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — modules, data flow, schema
+- [docs/PLATFORM-INTEGRATION.md](docs/PLATFORM-INTEGRATION.md) — chat platform matrix and adapter contract
+- [docs/HANDOVER.md](docs/HANDOVER.md) — baseline handover: acceptance, runbooks, known limits
+- [docs/SCRIPTS.md](docs/SCRIPTS.md) — CLI reference
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) — release history
+
+---
 
 ## License
 
-**PolyForm Noncommercial License 1.0.0** —— 仅限**非商业用途**（个人学习、研究、教育、爱好项目、非营利/政府用途）。**未经作者单独授权，禁止任何商业化、盈利性使用或转售**。详见 [LICENSE](LICENSE)。
-
-Required Notice: Copyright (c) 2026 William-Trader (https://github.com/William-Trader)
+PolyForm Noncommercial License 1.0.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE)
+for the MIT-licensed upstream component that was merged into v2.
