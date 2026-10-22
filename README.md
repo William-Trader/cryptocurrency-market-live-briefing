@@ -7,6 +7,8 @@ that renders natively for Telegram, Discord, Slack, Feishu/Lark, WeCom, QQ
 
 **Version 2.0.0** · Node.js >= 18 · PolyForm Noncommercial 1.0.0
 
+**English** | [简体中文](README.zh-CN.md)
+
 ---
 
 ## Why this exists
